@@ -52,8 +52,18 @@ Only binary 30-byte frames are written to the telemetry stream. No diagnostic te
 
 ## Uploading with Arduino IDE
 
-1. Download or clone this repository with the `src` directory included.
-2. Open `HEPTA_Flightware.ino` in Arduino IDE.
+The Arduino sketch and its bundled library use the following Arduino-compatible directory layout:
+
+```text
+HEPTA-SAT-Flight-Software/
+└── HEPTA_Flightware/
+    ├── HEPTA_Flightware.ino
+    └── src/
+        └── HeptaSat.h
+```
+
+1. Download or clone the complete repository.
+2. Open `HEPTA_Flightware/HEPTA_Flightware.ino` in Arduino IDE.
 3. Select **Raspberry Pi Pico 2** as the board.
 4. Select the Pico 2 USB port.
 5. Click **Verify**, then **Upload**.
@@ -93,4 +103,4 @@ The compatible Ground Station displays received hardware telemetry independently
 - [Lab5-03 Downlink Housekeeping Data](https://github.com/HEPTA-SAT-TRAINING/Lab5-03_downlink_hk_data)
 - [HEPTA-SAT Ground Station Simulator Web](https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Grand-Station-Simulator-Web)
 - [HEPTA-SAT Flight Software](https://github.com/hepta-sat/HEPTA-SAT-Flight-Software)
-- The bundled `src/` directory is based on commit `ec480993c3433461886916dbb77df1ba0d7c67bd` of [HEPTA-SAT-Library](https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Library).
+- The bundled `HEPTA_Flightware/src/` directory is based on commit `ec480993c3433461886916dbb77df1ba0d7c67bd` of [HEPTA-SAT-Library](https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Library).
