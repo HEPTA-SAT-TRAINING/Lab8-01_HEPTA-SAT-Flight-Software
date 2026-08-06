@@ -1,4 +1,4 @@
-# HEPTA Flightware for Raspberry Pi Pico 2
+# HEPTA-SAT-Flight-Software
 
 This Arduino sketch acquires bus voltage, temperature, and nine-axis IMU data from a HEPTA-SAT V4.1.1 full board once per second. It transmits the measurements as a 30-byte binary telemetry frame that is compatible with the HEPTA Ground Station Simulator.
 
