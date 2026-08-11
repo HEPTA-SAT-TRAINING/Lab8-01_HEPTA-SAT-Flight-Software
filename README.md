@@ -1,106 +1,122 @@
-# HEPTA-SAT-Flight-Software
+# HEPTA-SAT Flight Software
 
-This Arduino sketch acquires bus voltage, temperature, and nine-axis IMU data from a HEPTA-SAT V4.1.1 full board once per second. It transmits the measurements as a 30-byte binary telemetry frame that is compatible with the HEPTA Ground Station Simulator.
+Arduino Flight Software for the HEPTA-SAT V4.1.1 full board and Raspberry Pi
+Pico 2. It sends housekeeping and nine-axis telemetry to the HEPTA-SAT Grand
+Station Simulator Web and captures/downlinks a JPEG on command.
 
-## Telemetry Values
+## Operation modes and commands
 
-- Bus voltage (V)
-- Temperature (°C)
-- Acceleration: AX, AY, and AZ (m/s²)
-- Angular velocity: GX, GY, and GZ (deg/s)
-- Magnetic field: MX, MY, and MZ (µT)
+- `a`: enter Mission mode. HK, temperature, acceleration, angular velocity,
+  and magnetic field are sampled once per second.
+- `b`: return to Standby mode. HK and temperature continue; nine-axis values
+  are zero, preserving the existing behavior.
+- `p`: capture `/picture_dl.jpg` and downlink it using the Library image
+  protocol. After the transfer, periodic telemetry resumes.
 
-In Standby mode, the sketch acquires temperature only. In Mission mode, it acquires temperature and all nine IMU axes. Send `a` from the Ground Station to enter Mission mode or `b` to return to Standby mode.
+Below 3.6 V bus voltage, the existing Power Save behavior is retained:
+temperature and nine-axis fields are zero. EPS measurements remain available
+so the power condition can be diagnosed.
 
-## Ground Station Frame Format
+Commands are accepted from both XBee and Pico 2 USB Serial. Telemetry is sent
+to both interfaces. JPEG downlink uses the primary XBee/`HeptaCom` path used by
+Lab5-05.
+
+## Telemetry frame
+
+All multibyte telemetry values are big-endian.
 
 ```text
-7E | Satellite ID | Type | Sequence (2 bytes, BE) | Length | Payload (23 bytes) | Checksum
+7E | Satellite ID | Type | Sequence (2) | Length | Payload (35) | Checksum
 ```
 
 - Satellite ID: `0x01`
-- Type: Standby = `0x10`, Mission = `0x11`, Power Save = `0x12`
-- Length: `0x17` (23 bytes)
-- Payload: mode, voltage, temperature, acceleration XYZ, gyroscope XYZ, and magnetometer XYZ
-- Voltage: ADC count = `V / (3.3 × 1.431) × 4096`
-- Temperature: `°C × 10`
-- Acceleration: 512 counts/g = `m/s² / 9.8 × 512`
-- Angular velocity: `deg/s × 2048 / 125`
-- Magnetic field: integer µT
-- Checksum: one-byte sum from Satellite ID through the final payload byte; the `0x7E` header is excluded
-- All two-byte integer fields use big-endian byte order
+- Type: Standby `0x10`, Mission `0x11`, Power Save `0x12`
+- Checksum: 8-bit sum from Satellite ID through the last payload byte. `0x7E`
+  is excluded.
+- Total frame size: 42 bytes
 
-The same frame is sent through both interfaces:
+The first 23 payload bytes are unchanged from the legacy 30-byte frame:
 
-1. XBee on GP15 RX and GP14 TX in Transparent mode
-2. Raspberry Pi Pico 2 USB Serial for direct connection and debugging
+| Offset | Value | Wire unit |
+| ---: | --- | --- |
+| 0 | Mode | `0` Standby / `1` Mission |
+| 1-2 | Bus voltage | legacy ADC count: `V / (3.3 * 1.431) * 4096` |
+| 3-4 | Temperature | signed 0.1 °C |
+| 5-10 | Acceleration XYZ | signed, 512 count/g |
+| 11-16 | Angular velocity XYZ | signed, 2048/125 count/(deg/s) |
+| 17-22 | Magnetic field XYZ | signed integer µT |
 
-Only binary 30-byte frames are written to the telemetry stream. No diagnostic text is mixed into the stream, preventing duplicate parsing and display overwrites in the Ground Station. Use hexadecimal display mode when inspecting the data in a terminal application.
+The Lab5-03 EPS extension is appended without moving legacy fields:
 
-## Implementation Notes
+| Offset | Value | Wire unit |
+| ---: | --- | --- |
+| 23-24 | 5 V rail | unsigned mV |
+| 25-26 | 3.3 V rail | unsigned mV |
+| 27-28 | Solar-array voltage | unsigned mV |
+| 29-30 | Solar current | signed mA |
+| 31-32 | Bus current | signed mA |
+| 33-34 | Charge current | signed mA |
 
-- Sends the Ground Station's 30-byte binary frame instead of the Lab5-03 CSV text format.
-- Writes each complete frame as one binary block.
-- Reports zero for all nine IMU fields in Standby mode.
-- Uses the same I2C devices as the reference HEPTA implementation in Mission mode: accelerometer `0x19`, gyroscope `0x69`, and magnetometer `0x13`.
-- Does not use the legacy BNO055 driver at `0x28`, because that device does not match the sensors on the target board.
-- Uses the reference HEPTA voltage-divider ratio of `1.431`.
-- Enters Power Save mode below 3.6 V; temperature and all IMU fields are then reported as zero.
-- Does not stop when an SD card is absent.
-- Explicitly enables the 3.3 V sensor power supply during startup.
-- Accepts `a` and `b` commands from both XBee and Pico 2 USB Serial.
+The physical bus voltage is read through `HeptaEps::get_bus_voltage()`. The
+legacy 1.431 factor above is only the existing wire encoding and is kept so the
+Grand Station conversion remains compatible.
 
-## Uploading with Arduino IDE
+## JPEG downlink protocol
 
-The Arduino sketch and its bundled library use the following Arduino-compatible directory layout:
+This is the existing protocol implemented by `HeptaImageTx` and used by
+Lab5-05:
 
 ```text
-HEPTA-SAT-Flight-Software/
-└── HEPTA_Flightware/
-    ├── HEPTA_Flightware.ino
-    └── src/
-        └── HeptaSat.h
+IMG_BEGIN\n
+HP packets
+\nIMG_END\n
 ```
 
-1. Download or clone the complete repository.
-2. Open `HEPTA_Flightware/HEPTA_Flightware.ino` in Arduino IDE.
-3. Select **Raspberry Pi Pico 2** as the board.
-4. Select the Pico 2 USB port.
-5. Click **Verify**, then **Upload**.
+Each packet contains `HP`, type, sequence, total packet count, payload length,
+CRC-16/CCITT-FALSE, and payload. JPEG DATA payloads are 64 bytes. A full-image
+CRC detects corruption and one XOR parity packet can recover one missing or
+corrupt DATA packet. The 16-bit packet count limits this framing to 4,194,048
+bytes; VGA JPEG output is expected to remain well below it. The camera writes
+JPEG to `/picture_dl.jpg` on SD before downlink.
 
-Do not open or upload an empty default sketch such as `sketch_aug6a.ino`.
+## Library usage and hardware notes
 
-## Uploading the Prebuilt UF2
+The sketch uses the bundled HEPTA-SAT Library for CDH/USB Serial, EPS setup and
+measurements, XBee communication, temperature, Arducam Mini 2MP Plus capture,
+SD storage, and image packetization. The bundled camera driver and sensor API
+are synchronized with the referenced Library `develop` implementation. The
+original Flight Software uses accelerometer `0x19`,
+gyroscope `0x69`, and magnetometer `0x13`; the Library's exposed BNO055 API
+targets different IMU hardware, so the three-device adapter remains in the
+sketch.
 
-The repository also contains `HEPTA_Flightware-Pico2.uf2`.
+XBee configuration:
 
-1. Disconnect the Pico 2 USB cable.
-2. Hold the BOOTSEL button while reconnecting the USB cable.
-3. Release BOOTSEL when the `RP2350` drive appears.
-4. Copy `HEPTA_Flightware-Pico2.uf2` to the `RP2350` drive.
+- 38400 baud (`BD=5`)
+- Transparent mode (`AP=0`)
+- Matching PAN ID and destination addresses
+- Flight Software RX GP15 / TX GP14 (provided by `HeptaCom`)
 
-The board automatically restarts after the copy completes.
+## Build and upload
 
-## XBee Configuration
+Open `HEPTA_Flightware/HEPTA_Flightware.ino` in Arduino IDE, select
+**Raspberry Pi Pico 2**, then Verify/Upload. The repository layout intentionally
+keeps the Library under `HEPTA_Flightware/src/` so Arduino compiles it with the
+sketch.
 
-The firmware uses 38400 baud, matching the current HEPTA XBee pair.
+Command-line verification:
 
-- `AP=0` (Transparent mode)
-- Matching PAN ID on both XBee modules
-- Correct `DH` and `DL` destination addresses
-- `BD=5` (38400 baud)
+```bash
+arduino-cli compile --fqbn rp2040:rp2040:rpipico2 HEPTA_Flightware
+```
 
-The aircraft firmware, ground-side XBee, and Ground Station Web Serial connection must all use 38400 baud. Pico 2 USB Serial uses USB CDC, so the baud rate selected by a terminal does not change the physical USB data rate.
-
-## Troubleshooting
-
-If telemetry does not appear over XBee, verify the PAN ID, destination addresses, API mode, and baud rate in XCTU. For a direct USB test, select the Pico 2 USB Serial port rather than the XBee USB adapter.
-
-The compatible Ground Station displays received hardware telemetry independently of the simulated satellite elevation.
+Do not wait indefinitely for SD at startup: telemetry must continue if the card
+is absent. A `p` command reports a protocol error when capture/storage fails.
 
 ## References
 
-- [Lab5-03 Downlink Housekeeping Data](https://github.com/HEPTA-SAT-TRAINING/Lab5-03_downlink_hk_data)
-- [HEPTA-SAT Ground Station Simulator Web](https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Grand-Station-Simulator-Web)
-- [HEPTA-SAT Flight Software](https://github.com/hepta-sat/HEPTA-SAT-Flight-Software)
-- The bundled `HEPTA_Flightware/src/` directory is based on commit `ec480993c3433461886916dbb77df1ba0d7c67bd` of [HEPTA-SAT-Library](https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Library).
+- [HEPTA-SAT Library](https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Library)
+- [Lab5-03 HK downlink](https://github.com/HEPTA-SAT-TRAINING/Lab5-03_downlink_hk_data)
+- [Lab5-04 accelerometer downlink](https://github.com/HEPTA-SAT-TRAINING/Lab5-04_downlink_accelerometer_data)
+- [Lab5-05 picture downlink](https://github.com/HEPTA-SAT-TRAINING/Lab5-05_downlink_picture_data)
+- [HEPTA-SAT Serial Monitor](https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Serial_Monitor)
