@@ -112,6 +112,18 @@ Open `HEPTA_Flightware/HEPTA_Flightware.ino` in Arduino IDE, select
 arduino-cli compile --fqbn rp2040:rp2040:rpipico2 HEPTA_Flightware
 ```
 
+`HEPTA_Flightware-Pico2.uf2` is the prebuilt image generated from this sketch.
+To use it, hold **BOOTSEL** while connecting Pico 2 and copy the UF2 to the
+`RP2350` drive. Its SHA-256 is:
+
+```text
+25c8402e23013569a8577800110647d2befaaaeee98bb168324022d87e5a349c
+```
+
+After reboot, ordinary telemetry is a `TEMP=...,BUS=...` text line. If the
+receiver still shows frames beginning with `7E 01`, the older firmware is
+still running and the new UF2 must be written again.
+
 ## Reference implementations
 
 - [Lab5-03 HK downlink](https://github.com/HEPTA-SAT-TRAINING/Lab5-03_downlink_hk_data)
