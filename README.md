@@ -81,14 +81,22 @@ JPEG to `/picture_dl.jpg` on SD before downlink.
 
 ## Library usage and hardware notes
 
-The sketch uses the bundled HEPTA-SAT Library for CDH/USB Serial, EPS setup and
-measurements, XBee communication, temperature, Arducam Mini 2MP Plus capture,
-SD storage, and image packetization. The bundled camera driver and sensor API
-are synchronized with the referenced Library `develop` implementation. The
-original Flight Software uses accelerometer `0x19`,
-gyroscope `0x69`, and magnetometer `0x13`; the Library's exposed BNO055 API
-targets different IMU hardware, so the three-device adapter remains in the
-sketch.
+`HEPTA_Flightware/src` is a Git submodule of
+[HEPTA-SAT-Library](https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Library),
+not a copied source tree. The parent repository pins the dependency to:
+
+```text
+8ca384892a8dd5e0389ad57afc20f88a9a723771
+```
+
+This is the `develop` commit used by Lab5-03, Lab5-04, and Lab5-06 with
+Arducam Mini 2MP Plus support. Do not use `git submodule update --remote` for a
+normal build: the gitlink commit is the reproducible dependency version.
+
+The sketch uses only the Library's public board APIs for pin assignments,
+sensor initialization and conversion, CDH/USB Serial, EPS measurements, BNO055
+nine-axis data, XBee communication, Arducam capture, SD storage, and image
+packetization. No Library driver is duplicated or modified in this repository.
 
 XBee configuration:
 
@@ -99,10 +107,30 @@ XBee configuration:
 
 ## Build and upload
 
+Clone with the fixed Library dependency:
+
+```bash
+git clone --recurse-submodules \
+  https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Flight-Software.git
+cd HEPTA-SAT-Flight-Software
+git submodule status
+```
+
+For an existing clone or after switching branches:
+
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive
+git submodule status
+```
+
+`git submodule status` must report commit
+`8ca384892a8dd5e0389ad57afc20f88a9a723771` at
+`HEPTA_Flightware/src`.
+
 Open `HEPTA_Flightware/HEPTA_Flightware.ino` in Arduino IDE, select
-**Raspberry Pi Pico 2**, then Verify/Upload. The repository layout intentionally
-keeps the Library under `HEPTA_Flightware/src/` so Arduino compiles it with the
-sketch.
+**Raspberry Pi Pico 2**, then Verify/Upload. Arduino automatically compiles
+sources below the sketch's `src/` directory.
 
 Command-line verification:
 
