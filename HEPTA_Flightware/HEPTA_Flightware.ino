@@ -1,7 +1,5 @@
 #include "src/HeptaSat.h"
 
-#include <math.h>
-
 HeptaCdh cdh;
 HeptaCom com;
 HeptaEps eps;
@@ -9,186 +7,105 @@ HeptaSensor sensor;
 
 namespace {
 
-constexpr uint8_t TELEMETRY_HEADER = 0x7E;
-constexpr uint8_t SATELLITE_ID = 0x01;
-constexpr uint8_t STANDBY_PACKET_TYPE = 0x10;
-constexpr uint8_t MISSION_PACKET_TYPE = 0x11;
-constexpr uint8_t POWER_SAVE_PACKET_TYPE = 0x12;
-constexpr uint8_t STANDBY_MODE = 0x00;
-constexpr uint8_t MISSION_MODE = 0x01;
-
-// The first 23 payload bytes retain the legacy Ground Station layout. The six
-// Lab5-03 EPS values are appended in millivolts/milliamps.
-constexpr size_t TELEMETRY_PAYLOAD_LENGTH = 35;
-constexpr size_t TELEMETRY_PACKET_LENGTH = 42;
-constexpr uint32_t TELEMETRY_INTERVAL_MS = 1000;
-constexpr char PICTURE_FILENAME[] = "/picture_dl.jpg";
-
-struct TelemetryData {
-  float bus_voltage_v;
-  float temperature_c;
-  float voltage_5v;
-  float voltage_3v3;
-  float solar_array_voltage_v;
-  float solar_current_a;
-  float bus_current_a;
-  float charge_current_a;
-  float acceleration[3];
-  float gyro[3];
-  float magnetometer[3];
-};
+constexpr uint32_t DOWNLINK_INTERVAL_MS = 1000;
+constexpr const char* PICTURE_FILENAME = "/picture_dl.jpg";
 
 bool mission_mode = false;
 bool picture_requested = false;
-uint16_t telemetry_sequence = 0;
-uint16_t image_sequence = 0;
-uint32_t last_telemetry_ms = 0;
+uint32_t last_downlink_ms = 0;
 
-int16_t clamp_i16(float value) {
-  if (!isfinite(value)) return 0;
-  if (value > 32767.0f) return 32767;
-  if (value < -32768.0f) return -32768;
-  return static_cast<int16_t>(value);
-}
-
-uint16_t clamp_u16(float value) {
-  if (!isfinite(value) || value < 0.0f) return 0;
-  if (value > 65535.0f) return 65535;
-  return static_cast<uint16_t>(value);
-}
-
-void put_u16_be(uint8_t *packet, size_t *index, uint16_t value) {
-  packet[(*index)++] = static_cast<uint8_t>(value >> 8);
-  packet[(*index)++] = static_cast<uint8_t>(value & 0xFF);
-}
-
-void put_i16_be(uint8_t *packet, size_t *index, int16_t value) {
-  put_u16_be(packet, index, static_cast<uint16_t>(value));
-}
-
-uint8_t calculate_checksum(const uint8_t *packet, size_t length_without_checksum) {
-  uint8_t checksum = 0;
-  for (size_t i = 1; i < length_without_checksum; ++i) {
-    checksum = static_cast<uint8_t>(checksum + packet[i]);
-  }
-  return checksum;
-}
-
-TelemetryData read_telemetry_data(float bus_voltage, bool power_save) {
-  TelemetryData data = {};
-  data.bus_voltage_v = bus_voltage;
-
-  // Lab5-03 HK acquisition through the public HEPTA-SAT-Library API.
-  data.voltage_5v = eps.get_5v_voltage();
-  data.voltage_3v3 = eps.get_3v3_voltage();
-  data.solar_array_voltage_v = eps.get_sap_voltage();
-  data.solar_current_a = eps.get_current_solar();
-  data.bus_current_a = eps.get_current_bus();
-  data.charge_current_a = eps.get_current_charge();
-
-  if (power_save) return data;
-
-  data.temperature_c = sensor.get_temperature();
-  if (!mission_mode) return data;
-
-  // The Library owns sensor addresses, initialization, conversions, retry,
-  // and pin assignments. Failed reads remain zero without stopping telemetry.
-  sensor.get_acceleration(
-    &data.acceleration[0], &data.acceleration[1], &data.acceleration[2]);
-  sensor.get_gyro(&data.gyro[0], &data.gyro[1], &data.gyro[2]);
-  sensor.get_magnetometer(
-    &data.magnetometer[0], &data.magnetometer[1], &data.magnetometer[2]);
-  return data;
-}
-
-size_t build_telemetry_packet(
-  uint8_t *packet,
-  size_t packet_capacity,
-  const TelemetryData &data) {
-
-  if (packet == nullptr || packet_capacity < TELEMETRY_PACKET_LENGTH) return 0;
-
-  const bool power_save = !isfinite(data.bus_voltage_v) || data.bus_voltage_v < 3.6f;
-  const uint8_t packet_type = power_save
-    ? POWER_SAVE_PACKET_TYPE
-    : mission_mode ? MISSION_PACKET_TYPE : STANDBY_PACKET_TYPE;
-  const uint8_t mode = (!power_save && mission_mode) ? MISSION_MODE : STANDBY_MODE;
-
-  size_t index = 0;
-  packet[index++] = TELEMETRY_HEADER;
-  packet[index++] = SATELLITE_ID;
-  packet[index++] = packet_type;
-  put_u16_be(packet, &index, ++telemetry_sequence);
-  packet[index++] = TELEMETRY_PAYLOAD_LENGTH;
-  packet[index++] = mode;
-
-  // Legacy 23-byte payload prefix.
-  put_u16_be(packet, &index,
-    clamp_u16(data.bus_voltage_v / (3.3f * 1.431f) * 4096.0f));
-  put_i16_be(packet, &index, clamp_i16(data.temperature_c * 10.0f));
-  for (float value : data.acceleration) {
-    put_i16_be(packet, &index, clamp_i16(value / 9.8f * 512.0f));
-  }
-  for (float value : data.gyro) {
-    put_i16_be(packet, &index, clamp_i16(value * 2048.0f / 125.0f));
-  }
-  for (float value : data.magnetometer) {
-    put_i16_be(packet, &index, clamp_i16(value));
-  }
-
-  // Lab5-03 extension: millivolts followed by milliamps.
-  put_u16_be(packet, &index, clamp_u16(data.voltage_5v * 1000.0f));
-  put_u16_be(packet, &index, clamp_u16(data.voltage_3v3 * 1000.0f));
-  put_u16_be(packet, &index, clamp_u16(data.solar_array_voltage_v * 1000.0f));
-  put_i16_be(packet, &index, clamp_i16(data.solar_current_a * 1000.0f));
-  put_i16_be(packet, &index, clamp_i16(data.bus_current_a * 1000.0f));
-  put_i16_be(packet, &index, clamp_i16(data.charge_current_a * 1000.0f));
-
-  if (index != 6 + TELEMETRY_PAYLOAD_LENGTH) return 0;
-  packet[index++] = calculate_checksum(packet, index);
-  return index;
-}
-
-void send_telemetry() {
+// Lab5-03 wire format. Keep field names, order, precision, and units stable so
+// HEPTA-SAT Serial Monitor and Grand Station can consume the same stream.
+void downlink_hk_data(void) {
+  const float temp = sensor.get_temperature();
   const float bus_voltage = eps.get_bus_voltage();
-  const bool power_save = !isfinite(bus_voltage) || bus_voltage < 3.6f;
-  const TelemetryData data = read_telemetry_data(bus_voltage, power_save);
+  const float v5 = eps.get_5v_voltage();
+  const float v3v3 = eps.get_3v3_voltage();
+  const float sap = eps.get_sap_voltage();
+  const float isol = eps.get_current_solar();
+  const float ibus = eps.get_current_bus();
+  const float ichg = eps.get_current_charge();
 
-  uint8_t packet[TELEMETRY_PACKET_LENGTH] = {};
-  const size_t length = build_telemetry_packet(packet, sizeof(packet), data);
-  if (length != TELEMETRY_PACKET_LENGTH) return;
+  com.printf(
+    "TEMP=%.2f,BUS=%.3f,V5=%.3f,V3V3=%.3f,SAP=%.3f,ISOL=%.3f,IBUS=%.3f,ICHG=%.3f\r\n",
+    temp, bus_voltage, v5, v3v3, sap, isol, ibus, ichg);
 
-  com.write(packet, length);
-  // Preserve direct Pico 2 USB telemetry for bench testing.
-  cdh.write(packet, length);
+  cdh.printf(
+    "HK: TEMP=%.2f C, BUS=%.3f V, V5=%.3f V, V3V3=%.3f V, SAP=%.3f V, ISOL=%.3f A, IBUS=%.3f A, ICHG=%.3f A\r\n",
+    temp, bus_voltage, v5, v3v3, sap, isol, ibus, ichg);
 }
 
-void apply_command(char command) {
+// Lab5-04 uses the same API and AX/AY/AZ field names. Mission mode extends
+// that line with the remaining BNO055 gyro and magnetometer values.
+void downlink_nine_axis_data(void) {
+  float ax = 0.0f;
+  float ay = 0.0f;
+  float az = 0.0f;
+  float gx = 0.0f;
+  float gy = 0.0f;
+  float gz = 0.0f;
+  float mx = 0.0f;
+  float my = 0.0f;
+  float mz = 0.0f;
+
+  const bool acceleration_ok = sensor.get_acceleration(&ax, &ay, &az);
+  const bool gyro_ok = sensor.get_gyro(&gx, &gy, &gz);
+  const bool magnetometer_ok = sensor.get_magnetometer(&mx, &my, &mz);
+
+  com.printf(
+    "AX=%.2f,AY=%.2f,AZ=%.2f,GX=%.2f,GY=%.2f,GZ=%.2f,MX=%.2f,MY=%.2f,MZ=%.2f\r\n",
+    ax, ay, az, gx, gy, gz, mx, my, mz);
+
+  cdh.printf(
+    "IMU: AX=%.2f m/s^2, AY=%.2f m/s^2, AZ=%.2f m/s^2, GX=%.2f deg/s, GY=%.2f deg/s, GZ=%.2f deg/s, MX=%.2f uT, MY=%.2f uT, MZ=%.2f uT\r\n",
+    ax, ay, az, gx, gy, gz, mx, my, mz);
+
+  if (!acceleration_ok || !gyro_ok || !magnetometer_ok) {
+    cdh.println("IMU read warning: one or more values were unavailable");
+  }
+}
+
+void handle_command(char command) {
+  com.printf("command = %c\r\n", command);
+  cdh.printf("command = %c\r\n", command);
+
   if (command == 'a' || command == 'A') {
     mission_mode = true;
+    com.println("MISSION_MODE");
+    cdh.println("MISSION_MODE");
   } else if (command == 'b' || command == 'B') {
     mission_mode = false;
+    com.println("STANDBY_MODE");
+    cdh.println("STANDBY_MODE");
   } else if (command == 'p' || command == 'P') {
     picture_requested = true;
+    com.println("downlink picture data");
+    cdh.println("downlink picture data");
   }
 }
 
-void process_commands() {
-  while (com.is_cmd_received()) {
-    apply_command(com.get_command());
+void process_commands(void) {
+  while (com.available()) {
+    handle_command(com.get_char());
   }
   while (cdh.is_cmd_received()) {
-    apply_command(cdh.get_command());
+    handle_command(cdh.get_command());
   }
 }
 
-void capture_and_downlink_picture() {
+void downlink_picture_data(void) {
   picture_requested = false;
   if (!sensor.camera_snapshot(PICTURE_FILENAME)) {
     com.send_image_error(HeptaCom::IMAGE_ERROR_CAPTURE_FAILED);
+    cdh.println("Picture capture failed");
     return;
   }
-  com.downlink_image_file(PICTURE_FILENAME, ++image_sequence);
+
+  if (!com.downlink_image_file(PICTURE_FILENAME)) {
+    cdh.printf("Picture downlink failed: %s\r\n", com.last_error());
+    return;
+  }
+  cdh.println("Picture downlink completed");
 }
 
 }  // namespace
@@ -199,21 +116,25 @@ void setup() {
   eps.switch_3V3_on();
   sensor.begin();
   com.begin();
-  last_telemetry_ms = millis() - TELEMETRY_INTERVAL_MS;
+
+  cdh.println("XBee downlink started ('a'=mission, 'b'=standby, 'p'=picture)");
+  last_downlink_ms = millis() - DOWNLINK_INTERVAL_MS;
 }
 
 void loop() {
   process_commands();
 
   if (picture_requested) {
-    capture_and_downlink_picture();
-    last_telemetry_ms = millis();
+    // Lab5-05 sends no HK bytes while binary image packets are in flight.
+    downlink_picture_data();
+    last_downlink_ms = millis();
   }
 
   const uint32_t now = millis();
-  if (static_cast<uint32_t>(now - last_telemetry_ms) >= TELEMETRY_INTERVAL_MS) {
-    last_telemetry_ms = now;
-    send_telemetry();
+  if (static_cast<uint32_t>(now - last_downlink_ms) >= DOWNLINK_INTERVAL_MS) {
+    last_downlink_ms = now;
+    downlink_hk_data();
+    if (mission_mode) downlink_nine_axis_data();
   }
 
   delay(5);
