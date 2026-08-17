@@ -1,5 +1,7 @@
 #include "src/HeptaSat.h"
 
+#include <stdlib.h>
+
 HeptaCdh cdh;
 HeptaCom com;
 HeptaEps eps;
@@ -8,11 +10,48 @@ HeptaSensor sensor;
 namespace {
 
 constexpr uint32_t DOWNLINK_INTERVAL_MS = 1000;
+// ATDB is an XBee command-mode query.  Do not run it for every HK frame:
+// entering/exiting command mode uses guard times and temporarily pauses the
+// transparent data stream.  The last valid value is included in each HK line.
+constexpr uint32_t RSSI_QUERY_INTERVAL_MS = 15000;
 constexpr const char* PICTURE_FILENAME = "/picture_dl.jpg";
 
 bool mission_mode = false;
 bool picture_requested = false;
 uint32_t last_downlink_ms = 0;
+uint32_t last_rssi_query_ms = 0;
+int rssi_dbm = 0;
+bool rssi_valid = false;
+
+bool update_xbee_rssi(void) {
+  char response[24] = {};
+  if (!com.enter_command_mode()) return false;
+
+  const bool query_ok = com.send_at_command(
+    "ATDB\r", response, sizeof(response), 1000);
+  const bool exit_ok = com.exit_command_mode();
+  if (!query_ok || !exit_ok) return false;
+
+  // XBee ATDB returns the RSSI magnitude as a hexadecimal byte (for example,
+  // "40" means -64 dBm).  Ignore ERROR/garbage rather than sending a fake
+  // value to the ground station.
+  char *end = nullptr;
+  const unsigned long magnitude = strtoul(response, &end, 16);
+  if (end == response || magnitude > 127UL) return false;
+
+  rssi_dbm = -static_cast<int>(magnitude);
+  rssi_valid = true;
+  return true;
+}
+
+void refresh_xbee_rssi(void) {
+  const uint32_t now = millis();
+  if (static_cast<uint32_t>(now - last_rssi_query_ms) < RSSI_QUERY_INTERVAL_MS) {
+    return;
+  }
+  last_rssi_query_ms = now;
+  update_xbee_rssi();
+}
 
 // Lab5-03 wire format. Keep field names, order, precision, and units stable so
 // HEPTA-SAT Serial Monitor and Grand Station can consume the same stream.
@@ -26,9 +65,15 @@ void downlink_hk_data(void) {
   const float ibus = eps.get_current_bus();
   const float ichg = eps.get_current_charge();
 
-  com.printf(
-    "TEMP=%.2f,BUS=%.3f,V5=%.3f,V3V3=%.3f,SAP=%.3f,ISOL=%.3f,IBUS=%.3f,ICHG=%.3f\r\n",
-    temp, bus_voltage, v5, v3v3, sap, isol, ibus, ichg);
+  if (rssi_valid) {
+    com.printf(
+      "TEMP=%.2f,BUS=%.3f,V5=%.3f,V3V3=%.3f,SAP=%.3f,ISOL=%.3f,IBUS=%.3f,ICHG=%.3f,RSSI=%d\r\n",
+      temp, bus_voltage, v5, v3v3, sap, isol, ibus, ichg, rssi_dbm);
+  } else {
+    com.printf(
+      "TEMP=%.2f,BUS=%.3f,V5=%.3f,V3V3=%.3f,SAP=%.3f,ISOL=%.3f,IBUS=%.3f,ICHG=%.3f\r\n",
+      temp, bus_voltage, v5, v3v3, sap, isol, ibus, ichg);
+  }
 
   cdh.printf(
     "HK: TEMP=%.2f C, BUS=%.3f V, V5=%.3f V, V3V3=%.3f V, SAP=%.3f V, ISOL=%.3f A, IBUS=%.3f A, ICHG=%.3f A\r\n",
@@ -119,6 +164,8 @@ void setup() {
 
   cdh.println("XBee downlink started ('a'=mission, 'b'=standby, 'p'=picture)");
   last_downlink_ms = millis() - DOWNLINK_INTERVAL_MS;
+  // Let the transparent link settle before the first ATDB query.
+  last_rssi_query_ms = millis();
 }
 
 void loop() {
@@ -129,6 +176,8 @@ void loop() {
     downlink_picture_data();
     last_downlink_ms = millis();
   }
+
+  refresh_xbee_rssi();
 
   const uint32_t now = millis();
   if (static_cast<uint32_t>(now - last_downlink_ms) >= DOWNLINK_INTERVAL_MS) {

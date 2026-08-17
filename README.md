@@ -113,6 +113,16 @@ arduino-cli compile --fqbn rp2040:rp2040:rpipico2 HEPTA_Flightware
 ```
 
 `HEPTA_Flightware-Pico2.uf2` is the prebuilt image generated from this sketch.
+
+### XBee RSSI downlink
+
+The sketch periodically queries the local XBee `ATDB` parameter and appends
+the result to the HK line as `RSSI=-NN` (dBm). `ATDB` is read in XBee command
+mode, so it is intentionally sampled every 15 seconds rather than on every
+one-second HK frame; the last valid value is reused between samples. If the
+XBee does not return a valid value, the `RSSI` field is omitted instead of
+sending a fabricated signal strength. The ground-station Web parser consumes
+this field directly.
 To use it, hold **BOOTSEL** while connecting Pico 2 and copy the UF2 to the
 `RP2350` drive. Its SHA-256 is:
 
