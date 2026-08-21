@@ -15,7 +15,7 @@ bool picture_requested = false;
 uint32_t last_downlink_ms = 0;
 
 // Lab5-03 wire format. Keep field names, order, precision, and units stable so
-// HEPTA-SAT Serial Monitor and Grand Station can consume the same stream.
+// HEPTA-SAT Serial Monitor and Ground Station can consume the same stream.
 void downlink_hk_data(void) {
   const float temp = sensor.get_temperature();
   const float bus_voltage = eps.get_bus_voltage();

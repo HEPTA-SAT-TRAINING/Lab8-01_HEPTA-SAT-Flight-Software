@@ -1,6 +1,6 @@
-# HEPTA-SAT Flight Software
+# Lab8-01 HEPTA-SAT Flight Software
 
-Flight Software for the HEPTA-SAT V4.1.1 full board and Raspberry Pi Pico 2.
+Flight Software for the HEPTA-SAT OBC (V4.1.1 full board).
 The sketch follows the actual Lab5-03, Lab5-04, and Lab5-05 command and
 downlink formats and uses the public APIs exposed by `HeptaSat.h`.
 
@@ -14,7 +14,7 @@ Commands are single characters without a required line ending:
   protocol. Periodic text telemetry resumes after transfer.
 
 Commands received over XBee are read with `HeptaCom::available()` and
-`get_char()`. The same commands are accepted from Pico 2 USB Serial through
+`get_char()`. The same commands are accepted from HEPTA-SAT OBC USB Serial through
 `HeptaCdh::is_cmd_received()` and `get_command()` for bench testing.
 
 ## Text telemetry format
@@ -60,7 +60,7 @@ The `p` flow matches Lab5-05:
 3. On success, `com.downlink_image_file("/picture_dl.jpg")`
 
 `downlink_image_file()` produces the Library protocol consumed by
-HEPTA-SAT Serial Monitor and Grand Station Simulator Web:
+HEPTA-SAT Serial Monitor and Ground Station Simulator:
 
 ```text
 IMG_BEGIN
@@ -87,8 +87,8 @@ Clone and initialize the fixed dependency:
 
 ```bash
 git clone --recurse-submodules \
-  https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Flight-Software.git
-cd HEPTA-SAT-Flight-Software
+  https://github.com/HEPTA-SAT-TRAINING/Lab8-01_HEPTA-SAT-Flight-Software.git
+cd Lab8-01_HEPTA-SAT-Flight-Software
 git submodule status
 ```
 
@@ -106,15 +106,11 @@ gitlink is the reproducible dependency version.
 ## Build
 
 Open `HEPTA_Flightware/HEPTA_Flightware.ino` in Arduino IDE, select
-**Raspberry Pi Pico 2**, then Verify/Upload. Command-line verification:
+**HEPTA-SAT OBC**, then Verify/Upload.
 
-```bash
-arduino-cli compile --fqbn rp2040:rp2040:rpipico2 HEPTA_Flightware
-```
-
-`HEPTA_Flightware-Pico2.uf2` is the prebuilt image generated from this sketch.
-To use it, hold **BOOTSEL** while connecting Pico 2 and copy the UF2 to the
-`RP2350` drive. Its SHA-256 is:
+`HEPTA_Flightware-OBC.uf2` is the prebuilt image generated from this sketch.
+To use it, hold **BOOTSEL** while connecting the HEPTA-SAT OBC and copy the UF2
+to the removable drive. Its SHA-256 is:
 
 ```text
 25c8402e23013569a8577800110647d2befaaaeee98bb168324022d87e5a349c
