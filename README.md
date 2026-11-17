@@ -103,6 +103,13 @@ git submodule status
 Do not use `git submodule update --remote` for a normal build; the parent
 gitlink is the reproducible dependency version.
 
+### XBee RSSI downlink
+
+The sketch queries XBee `ATDB` every 15 seconds and appends the last valid
+value to HK telemetry as `RSSI=-NN` (dBm). Command-mode guard times temporarily
+pause the transparent link. If a query fails, the last valid value is retained;
+until the first valid value is received, the `RSSI` field is omitted.
+
 ## Build
 
 Open `Lab8-01_HEPTA-SAT-Flight-Software/Lab8-01_HEPTA-SAT-Flight-Software.ino` in Arduino IDE, select
@@ -113,7 +120,7 @@ To use it, hold **BOOTSEL** while connecting the HEPTA-SAT OBC and copy the UF2
 to the removable drive. Its SHA-256 is:
 
 ```text
-25c8402e23013569a8577800110647d2befaaaeee98bb168324022d87e5a349c
+662cf4a81275c0f2c64a3ee9745143f26dc2e57722ab9a47753bd63559da5d28
 ```
 
 After reboot, ordinary telemetry is a `TEMP=...,BUS=...` text line. If the
