@@ -1,3 +1,3 @@
 [submodule "HEPTA_Flightware/src"]
-	path = HEPTA_Flightware/src
+	path = Lab8-01_HEPTA-SAT-Flight-Software/src
 	url = https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Library.git

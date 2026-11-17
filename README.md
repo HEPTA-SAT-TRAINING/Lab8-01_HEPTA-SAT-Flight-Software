@@ -72,7 +72,7 @@ Periodic HK/IMU text is not inserted into the binary image transfer.
 
 ## Library dependency
 
-`HEPTA_Flightware/src` is a Git submodule of
+`Lab8-01_HEPTA-SAT-Flight-Software/src` is a Git submodule of
 [HEPTA-SAT-Library](https://github.com/HEPTA-SAT-TRAINING/HEPTA-SAT-Library).
 It is pinned to the commit used by the current Lab5-05 picture example:
 
@@ -105,7 +105,7 @@ gitlink is the reproducible dependency version.
 
 ## Build
 
-Open `HEPTA_Flightware/HEPTA_Flightware.ino` in Arduino IDE, select
+Open `Lab8-01_HEPTA-SAT-Flight-Software/Lab8-01_HEPTA-SAT-Flight-Software.ino` in Arduino IDE, select
 **HEPTA-SAT OBC**, then Verify/Upload.
 
 `HEPTA_Flightware-OBC.uf2` is the prebuilt image generated from this sketch.
